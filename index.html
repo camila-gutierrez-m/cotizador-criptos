@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cotizador de Criptos</title>
+
+  <!-- Íconos -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/dist/tabler-icons.min.css" />
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Vue 3 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/vue@3.4.0/dist/vue.global.prod.js"></script>
+
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+  <div id="app">
+
+    <!-- HEADER -->
+    <header class="header-band">
+      <div class="header-icon">
+        <i class="ti ti-currency-bitcoin" aria-hidden="true"></i>
+      </div>
+      <div>
+        <h1>Cotizador de criptos</h1>
+        <p>Precios simulados · convertidor · alertas de precio</p>
+      </div>
+      <div class="header-right">
+        <span class="last-update">{{ lastUpdate }}</span>
+        <button class="refresh-btn" @click="refreshPrices">
+          <i class="ti ti-refresh" aria-hidden="true"></i> Actualizar
+        </button>
+      </div>
+    </header>
+
+    <main class="main">
+
+      <!-- BÚSQUEDA Y FILTROS -->
+      <div class="search-bar">
+        <i class="ti ti-search" aria-hidden="true"></i>
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="Buscar por nombre o símbolo..."
+        />
+      </div>
+
+      <div class="filter-btns">
+        <button
+          v-for="f in filters"
+          :key="f.id"
+          class="fbtn"
+          :class="{ active: activeFilter === f.id }"
+          @click="activeFilter = f.id"
+        >
+          {{ f.label }}
+        </button>
+      </div>
+
+      <!-- GRID DE CRIPTOS -->
+      <div class="crypto-grid">
+        <div
+          v-for="c in filteredCryptos"
+          :key="c.id"
+          class="crypto-card"
+          :class="{ selected: selectedId === c.id }"
+          @click="selectCrypto(c.id)"
+        >
+          <div class="crypto-header">
+            <div class="crypto-icon" :style="{ background: c.color }">
+              {{ c.sym.slice(0, 2) }}
+            </div>
+            <div>
+              <div class="crypto-name">{{ c.name }}</div>
+              <div class="crypto-sym">
+                {{ c.sym }}
+                <span v-if="favorites.has(c.id)" class="star-on">★</span>
+                <span v-else class="star-off">☆</span>
+              </div>
+            </div>
+            <button
+              class="fav-btn"
+              @click.stop="toggleFav(c.id)"
+              :title="favorites.has(c.id) ? 'Quitar favorito' : 'Agregar a favoritos'"
+            >
+              <i :class="favorites.has(c.id) ? 'ti ti-star' : 'ti ti-star-off'" aria-hidden="true"></i>
+            </button>
+          </div>
+
+          <div class="crypto-price">{{ fmtPrice(c.price) }}</div>
+
+          <div class="crypto-row">
+            <span :class="c.change >= 0 ? 'badge-up' : 'badge-down'">
+              <i :class="c.change >= 0 ? 'ti ti-trending-up' : 'ti ti-trending-down'" aria-hidden="true"></i>
+              {{ c.change >= 0 ? '+' : '' }}{{ c.change.toFixed(2) }}%
+            </span>
+            <span class="cap">{{ c.cap }}</span>
+          </div>
+        </div>
+
+        <div v-if="filteredCryptos.length === 0" class="empty">
+          <i class="ti ti-mood-empty" aria-hidden="true"></i>
+          <p>Sin resultados para "{{ searchQuery }}"</p>
+        </div>
+      </div>
+
+      <!-- PANEL DE DETALLE -->
+      <div class="detail-card" v-if="selected">
+
+        <div class="detail-header">
+          <div class="detail-icon" :style="{ background: selected.color }">
+            {{ selected.sym.slice(0, 2) }}
+          </div>
+          <div>
+            <div class="detail-name">{{ selected.name }}</div>
+            <div class="detail-sym">{{ selected.sym }}</div>
+          </div>
+          <span :class="selected.change >= 0 ? 'badge-up' : 'badge-down'" style="margin-left:auto">
+            <i :class="selected.change >= 0 ? 'ti ti-trending-up' : 'ti ti-trending-down'" aria-hidden="true"></i>
+            {{ selected.change >= 0 ? '+' : '' }}{{ selected.change.toFixed(2) }}% hoy
+          </span>
+        </div>
+
+        <!-- STATS -->
+        <div class="stats-section">
+          <div class="section-label">Estadísticas del mercado</div>
+          <div class="detail-grid">
+            <div class="stat">
+              <div class="stat-label">Precio actual</div>
+              <div class="stat-value">{{ fmtPrice(selected.price) }}</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Máx. 24h</div>
+              <div class="stat-value">{{ fmtPrice(selected.high) }}</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Mín. 24h</div>
+              <div class="stat-value">{{ fmtPrice(selected.low) }}</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Capitalización</div>
+              <div class="stat-value">{{ selected.cap }}</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Volumen 24h</div>
+              <div class="stat-value">{{ selected.vol }}</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Suministro</div>
+              <div class="stat-value">{{ selected.supply }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- GRÁFICA -->
+        <div class="stats-section">
+          <div class="section-label">Variación últimas 24 horas</div>
+          <div class="chart-wrap">
+            <canvas id="priceChart"></canvas>
+          </div>
+        </div>
+
+        <!-- CONVERTIDOR -->
+        <div class="stats-section">
+          <div class="section-label">Convertidor</div>
+          <div class="converter">
+            <div class="conv-block">
+              <label class="conv-label">{{ selected.sym }}</label>
+              <input
+                class="conv-input"
+                type="number"
+                v-model="convCrypto"
+                min="0"
+                step="0.0001"
+                @input="convertFrom"
+              />
+              <select class="conv-select" disabled>
+                <option>{{ selected.sym }}</option>
+              </select>
+            </div>
+            <div class="eq-sign">=</div>
+            <div class="conv-block">
+              <label class="conv-label">Moneda fiat</label>
+              <input
+                class="conv-input"
+                type="number"
+                v-model="convFiat"
+                min="0"
+                @input="convertTo"
+              />
+              <select class="conv-select" v-model="fiatRate" @change="convertFrom">
+                <option value="1">USD ($)</option>
+                <option value="0.92">EUR (€)</option>
+                <option value="0.79">GBP (£)</option>
+                <option value="900">CLP ($)</option>
+                <option value="17.2">MXN ($)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- ALERTAS -->
+        <div class="stats-section">
+          <div class="section-label">Alertas de precio</div>
+          <div class="alert-row">
+            <select v-model="alertType" class="conv-select" style="width:auto">
+              <option value="above">Sube de</option>
+              <option value="below">Baja de</option>
+            </select>
+            <input
+              class="conv-input"
+              type="number"
+              v-model="alertPrice"
+              placeholder="Precio objetivo"
+              style="flex:1"
+            />
+            <button class="add-alert-btn" @click="addAlert">
+              <i class="ti ti-bell-plus" aria-hidden="true"></i> Agregar
+            </button>
+          </div>
+          <div class="alert-list">
+            <div
+              v-for="a in alertsForSelected"
+              :key="a.id"
+              class="alert-item"
+            >
+              <span>
+                <i class="ti ti-bell" aria-hidden="true"></i>
+                {{ a.coin }} {{ a.type === 'above' ? 'sube de' : 'baja de' }} {{ fmtPrice(a.price) }}
+              </span>
+              <button class="alert-del" @click="delAlert(a.id)">
+                <i class="ti ti-trash" aria-hidden="true"></i>
+              </button>
+            </div>
+            <div v-if="alertsForSelected.length === 0" class="empty-alerts">
+              Sin alertas para {{ selected.sym }}
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </main>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
